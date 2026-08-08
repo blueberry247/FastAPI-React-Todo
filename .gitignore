@@ -29,3 +29,11 @@ yarn-error.log*
 
 # docker
 docker-compose.yaml
+
+# Terraform local working directory. Do not commit provider binaries or local cache.
+**/.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+crash.*.log
