@@ -29,4 +29,3 @@ yarn-error.log*
 
 # docker
 docker-compose.yaml
-**/Dockerfile
