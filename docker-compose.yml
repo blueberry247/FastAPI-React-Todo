@@ -12,9 +12,10 @@ services:
     volumes:
       # Persist the SQLite database between rebuilds/restarts.
       - todo-data:/data
-    ports:
-      # Expose FastAPI locally/on the VM at port 4000.
-      - "4000:4000"
+    expose:
+      # Keep FastAPI available to the frontend container without using a VM host port.
+      # Nginx in the frontend container proxies /items, /users, /docs, and /redoc to this service.
+      - "4000"
 
   # React frontend served by Nginx.
   frontend:
