@@ -1,0 +1,35 @@
+services:
+  # FastAPI backend API container.
+  backend:
+    build:
+      # Build from Backend/Dockerfile.
+      context: ./Backend
+    container_name: todo-backend
+    restart: unless-stopped
+    environment:
+      # Put the SQLite database in the mounted volume path.
+      DATABASE_URL: sqlite:////data/sql_app.db
+    volumes:
+      # Persist the SQLite database between rebuilds/restarts.
+      - todo-data:/data
+    ports:
+      # Expose FastAPI locally/on the VM at port 4000.
+      - "4000:4000"
+
+  # React frontend served by Nginx.
+  frontend:
+    build:
+      # Build from frontend/Dockerfile.
+      context: ./frontend
+    container_name: todo-frontend
+    restart: unless-stopped
+    depends_on:
+      # Start backend before frontend so Nginx can proxy API routes.
+      - backend
+    ports:
+      # Expose the frontend on standard HTTP port 80.
+      - "80:80"
+
+volumes:
+  # Docker-managed volume used for backend SQLite persistence.
+  todo-data:

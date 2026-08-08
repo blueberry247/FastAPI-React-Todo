@@ -1,60 +1,27 @@
-import { useEffect, useRef } from "react";
-
-const SubTaskItem = ({
-  id,
-  content,
-  is_active,
-  deleteTask,
-  handleUpdateActive,
-  handleUpdateContent,
-  setNewTaskUpdate,
-}) => {
-  const inputRef = useRef(content);
-
-  useEffect(() => {
-    inputRef.current.value = content;
-  }, []);
-
+const SubTaskItem = ({ task, onToggle, onUpdateContent, onDelete }) => {
   return (
-    <li className="p-5 list-none">
-      <div className="flex justify-between group border-b-4 border-black hover:border-pink-500 p-5">
+    <li className="mb-4 rounded border-b-4 border-black bg-white p-4 shadow-sm hover:border-pink-500">
+      <div className="flex items-center gap-4">
+        <input
+          className="h-5 w-5 cursor-pointer accent-pink-500"
+          type="checkbox"
+          checked={!task.is_active}
+          onChange={() => onToggle(task)}
+        />
+
         <input
           className={
-            is_active
-              ? "float-left w-6 h-6 cursor-pointer rounded-full hover:bg-pink-500"
-              : "float-left w-6 h-6 cursor-pointer rounded-full accent-black hover:accent-pink-500"
+            task.is_active
+              ? "flex-1 outline-none focus:text-pink-500"
+              : "flex-1 text-gray-400 line-through outline-none"
           }
-          type="checkbox"
-          onChange={() =>
-            handleUpdateActive({
-              id: id,
-              is_active: !is_active, //kiedy zmienimy kontent bez wysłania go to is_active się pierdoli
-              content: content,
-            })
-          }
-          defaultChecked={!is_active}
+          disabled={!task.is_active}
+          value={task.content}
+          onChange={(event) => onUpdateContent(task, event.target.value)}
         />
-        <form onSubmit={handleUpdateContent}>
-          <input
-            className={
-              is_active
-                ? "caret-pink-500 placeholder:text-black focus:placeholder:text-white !outline-none"
-                : "line-through !outline-none"
-            }
-            disabled={!is_active}
-            ref={inputRef}
-            defaultValue={inputRef.current.value}
-            onChange={() =>
-              setNewTaskUpdate({
-                id: id,
-                is_active: is_active,
-                content: inputRef.current.value,
-              })
-            }
-          />
-        </form>
-        <button className="hover:text-pink-500" onClick={() => deleteTask(id)}>
-          <i className="fa-solid fa-trash"></i>
+
+        <button className="font-bold text-gray-500 hover:text-pink-500" onClick={() => onDelete(task.id)}>
+          Delete
         </button>
       </div>
     </li>

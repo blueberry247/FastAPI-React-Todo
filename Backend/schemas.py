@@ -1,42 +1,38 @@
-from typing import List, Union
-from pydantic import BaseModel
+from typing import List
+
+from pydantic import BaseModel, ConfigDict
 
 
-class ItemBase(BaseModel):
-    content: Union[str, None] = None
-    is_active: Union[bool, None] = None
+class ItemCreate(BaseModel):
+    """Data the frontend sends when creating or updating a ToDo item."""
 
-    class Config:
-        orm_mode = True
-
-
-class ItemCreate(ItemBase):
-    pass
+    content: str
+    is_active: bool = True
 
 
-class Item(ItemBase):
+class Item(ItemCreate):
+    """Data the backend returns for a ToDo item."""
+
     id: int
     owner_id: int
 
-    class Config:
-        orm_mode = True
+    # Allows Pydantic to read SQLAlchemy model objects directly.
+    model_config = ConfigDict(from_attributes=True)
 
 
-class UserBase(BaseModel):
+class UserCreate(BaseModel):
+    """Data required to create a user."""
+
     email: str
-
-    class Config:
-        orm_mode = True
-
-
-class UserCreate(UserBase):
     password: str
 
 
-class User(UserBase):
+class User(BaseModel):
+    """Data the backend returns for a user."""
+
     id: int
+    email: str
     is_active: bool
     items: List[Item] = []
 
-    class Config:
-        orm_mode = True
+    model_config = ConfigDict(from_attributes=True)

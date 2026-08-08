@@ -1,55 +1,90 @@
+from fastapi import HTTPException
 from sqlalchemy.orm import Session
-import models, schemas
+
+import models
+import schemas
+
+
+# This file contains small database helper functions.
+# main.py handles HTTP routes; crud.py handles database reads/writes.
 
 
 def get_user(db: Session, user_id: int):
+    """Return one user by id, or None if it does not exist."""
+
     return db.query(models.User).filter(models.User.id == user_id).first()
 
 
 def get_user_by_email(db: Session, email: str):
+    """Return one user by email, or None if it does not exist."""
+
     return db.query(models.User).filter(models.User.email == email).first()
 
 
-def get_users(db: Session, skip: int = 0, limit: int = 100):
-    return db.query(models.User).offset(skip).limit(limit).all()
+def get_users(db: Session):
+    """Return all users."""
+
+    return db.query(models.User).all()
 
 
 def create_user(db: Session, user: schemas.UserCreate):
-    fake_hashed_password = user.password + "notreallyhashed"
-    db_user = models.User(email=user.email, hashed_password=fake_hashed_password)
+    """Create a user.
+
+    This demo app is not a real login system, so the password is intentionally
+    simple. In a production app, use a real password hashing library.
+    """
+
+    db_user = models.User(
+        email=user.email,
+        hashed_password=f"{user.password}-demo-hash",
+    )
     db.add(db_user)
     db.commit()
     db.refresh(db_user)
     return db_user
 
 
-def get_items(db: Session, skip: int = 0, limit: int = 100):
-    return db.query(models.Item).offset(skip).limit(limit).all()
+def get_items(db: Session):
+    """Return all ToDo items."""
+
+    return db.query(models.Item).order_by(models.Item.id).all()
 
 
-def get_item(db: Session, item_id: int):
-    return db.query(models.Item).filter(models.Item.id == item_id).first()
+def create_item(db: Session, user_id: int, item: schemas.ItemCreate):
+    """Create a ToDo item for a user."""
 
-
-def create_user_item(db: Session, item: schemas.ItemCreate, user_id: int):
-    db_item = models.Item(**item.dict(), owner_id=user_id)
+    db_item = models.Item(
+        content=item.content,
+        is_active=item.is_active,
+        owner_id=user_id,
+    )
     db.add(db_item)
     db.commit()
     db.refresh(db_item)
     return db_item
 
 
-def delete_user_item(db: Session, item_id: int):
-    db_item = db.query(models.Item).get(item_id)
-    db.delete(db_item)
-    db.commit()
-    db.close()
-    return f"Task {item_id} was succefully deleted"
+def update_item(db: Session, item_id: int, item: schemas.ItemCreate):
+    """Update a ToDo item's text and active/completed state."""
 
+    db_item = db.get(models.Item, item_id)
+    if db_item is None:
+        raise HTTPException(status_code=404, detail="Item not found")
 
-def update_user_item(item_id: int, item: schemas.ItemCreate, db: Session):
-    db_item = get_item(db=db, item_id=item_id)
     db_item.content = item.content
     db_item.is_active = item.is_active
     db.commit()
-    return db
+    db.refresh(db_item)
+    return db_item
+
+
+def delete_item(db: Session, item_id: int):
+    """Delete a ToDo item."""
+
+    db_item = db.get(models.Item, item_id)
+    if db_item is None:
+        raise HTTPException(status_code=404, detail="Item not found")
+
+    db.delete(db_item)
+    db.commit()
+    return {"message": f"Task {item_id} was deleted"}

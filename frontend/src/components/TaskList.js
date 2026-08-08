@@ -1,36 +1,23 @@
-import "../index.css";
 import SubTaskItem from "./SubTaskList";
 
-const TaskItem = ({
-  tasks,
-  deleteTask,
-  handleUpdateActive,
-  handleUpdateContent,
-  setNewTaskUpdate,
-}) => {
-
-  const tasksList = tasks.map((task) => (
-    <div key={task.id}>
-      <SubTaskItem
-        key={task.id}
-        is_active={task.is_active}
-        content={task.content}
-        id={task.id}
-        deleteTask={deleteTask}
-        handleUpdateActive={handleUpdateActive}
-        handleUpdateContent={handleUpdateContent}
-        setNewTaskUpdate={setNewTaskUpdate}
-      />
-    </div>
-  ));
+const TaskList = ({ tasks, onToggle, onUpdateContent, onDelete }) => {
+  if (tasks.length === 0) {
+    return <p className="py-10 text-center text-gray-500">No tasks yet. Add one above.</p>;
+  }
 
   return (
-    <div>
-      <div className="flex justify-center">
-        <div className="w-1/2 p-5">{tasksList}</div>
-      </div>
-    </div>
+    <ul className="mx-auto max-w-2xl p-5">
+      {tasks.map((task) => (
+        <SubTaskItem
+          key={task.id}
+          task={task}
+          onToggle={onToggle}
+          onUpdateContent={onUpdateContent}
+          onDelete={onDelete}
+        />
+      ))}
+    </ul>
   );
-}
+};
 
-export default TaskItem;
+export default TaskList;

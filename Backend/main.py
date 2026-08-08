@@ -1,33 +1,43 @@
 from typing import List
-import uvicorn
+
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 
-import crud, models, schemas
+import crud
+import models
+import schemas
 from database import SessionLocal, engine
 
+# Create database tables when the backend starts.
 models.Base.metadata.create_all(bind=engine)
 
-app = FastAPI()
+app = FastAPI(title="Simple FastAPI React ToDo")
+
 
 @app.on_event("startup")
 def seed_default_user():
+    """Create user id=1 so the existing frontend can create tasks.
+
+    The original app hardcodes user id 1. This startup function makes sure that
+    user exists automatically, so you do not need to create it manually in /docs.
+    """
+
     db = SessionLocal()
     try:
-        if not db.query(models.User).filter(models.User.id == 1).first():
-            db.add(models.User(email="default@todo.app", hashed_password="seeded", is_active=True))
-            db.commit()
+        if not crud.get_user(db, 1):
+            crud.create_user(
+                db,
+                schemas.UserCreate(email="default@todo.app", password="password"),
+            )
     finally:
         db.close()
 
-origins = [
-    "http://localhost:3000",
-]
 
+# Allow the React development server and Docker/Nginx frontend to call the API.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins,
+    allow_origins=["http://localhost", "http://localhost:3000"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -35,6 +45,8 @@ app.add_middleware(
 
 
 def get_db():
+    """Give each request its own database session and close it afterwards."""
+
     db = SessionLocal()
     try:
         yield db
@@ -42,46 +54,72 @@ def get_db():
         db.close()
 
 
+@app.get("/")
+def health_check():
+    """Friendly message for http://localhost:4000."""
+
+    return {"message": "Backend is running. Open /docs for the API docs."}
+
+
 @app.post("/users/", response_model=schemas.User)
 def create_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
-    db_user = crud.get_user_by_email(db, email=user.email)
-    if db_user:
+    """Create a new user."""
+
+    if crud.get_user_by_email(db, user.email):
         raise HTTPException(status_code=400, detail="Email already registered")
-    return crud.create_user(db=db, user=user)
+    return crud.create_user(db, user)
 
 
 @app.get("/users/", response_model=List[schemas.User])
-def read_users(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
-    users = crud.get_users(db, skip=skip, limit=limit)
-    return users
+def read_users(db: Session = Depends(get_db)):
+    """Return all users."""
+
+    return crud.get_users(db)
 
 
 @app.get("/users/{user_id}", response_model=schemas.User)
 def read_user(user_id: int, db: Session = Depends(get_db)):
-    db_user = crud.get_user(db, user_id=user_id)
-    if db_user is None:
+    """Return one user by id."""
+
+    user = crud.get_user(db, user_id)
+    if user is None:
         raise HTTPException(status_code=404, detail="User not found")
-    return db_user
+    return user
 
 
 @app.post("/users/{user_id}/items/", response_model=schemas.Item)
 def create_item_for_user(
-    user_id: int, item: schemas.ItemCreate, db: Session = Depends(get_db)
+    user_id: int,
+    item: schemas.ItemCreate,
+    db: Session = Depends(get_db),
 ):
-    return crud.create_user_item(db=db, item=item, user_id=user_id)
+    """Create a ToDo item for a user."""
+
+    if crud.get_user(db, user_id) is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    return crud.create_item(db, user_id, item)
 
 
 @app.get("/items/", response_model=List[schemas.Item])
-def read_items(skip: int = 0, limit: int = 100, db: Session = Depends(get_db)):
-    items = crud.get_items(db, skip=skip, limit=limit)
-    return items
+def read_items(db: Session = Depends(get_db)):
+    """Return all ToDo items."""
+
+    return crud.get_items(db)
+
+
+@app.put("/items/{item_id}/", response_model=schemas.Item)
+def update_item(
+    item_id: int,
+    item: schemas.ItemCreate,
+    db: Session = Depends(get_db),
+):
+    """Update a ToDo item."""
+
+    return crud.update_item(db, item_id, item)
 
 
 @app.delete("/items/{item_id}/")
 def delete_item(item_id: int, db: Session = Depends(get_db)):
-    return crud.delete_user_item(db=db, item_id=item_id)
+    """Delete a ToDo item."""
 
-
-@app.put("/items/{item_id}/", response_model=schemas.ItemCreate)
-def update_item(item_id: int, item: schemas.ItemCreate, db: Session = Depends(get_db)):
-    return crud.update_user_item(db=db, item=item, item_id=item_id)
+    return crud.delete_item(db, item_id)
