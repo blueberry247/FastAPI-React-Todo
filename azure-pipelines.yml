@@ -32,11 +32,11 @@ stages:
           # Checkout the source code onto the build agent.
           - checkout: self
 
-          # Make sure the Docker CLI is available.
-          - task: DockerInstaller@0
-            displayName: Install Docker CLI
-            inputs:
-              dockerVersion: 20.10.25
+          # Show Docker versions available on the Microsoft-hosted agent.
+          - script: |
+              docker --version
+              docker compose version
+            displayName: Check Docker version
 
           # Build frontend and backend images before deployment.
           - script: docker compose build
