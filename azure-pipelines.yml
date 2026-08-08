@@ -42,11 +42,30 @@ stages:
           - script: docker compose build
             displayName: Build backend and frontend images
 
-  - stage: Deploy
-    displayName: Deploy To VM
+  - stage: Approval
+    displayName: Manual Approval
     dependsOn: Build
 
-    # Deploy only successful builds from main, not pull request runs.
+    # Only ask for approval for successful builds from main.
+    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
+    jobs:
+      - job: WaitForApproval
+        displayName: Wait for manual approval
+        pool: server
+        steps:
+          # This pauses the pipeline until someone approves or rejects deployment.
+          - task: ManualValidation@0
+            displayName: Approve VM deployment
+            timeoutInMinutes: 1440
+            inputs:
+              instructions: Review the build results, then approve to deploy to the Azure VM.
+              onTimeout: reject
+
+  - stage: Deploy
+    displayName: Deploy To VM
+    dependsOn: Approval
+
+    # Deploy only approved successful builds from main, not pull request validation runs.
     condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
     jobs:
       - deployment: DeployToVm
