@@ -207,3 +207,23 @@ stages:
         tags: |
           $(Build.BuildId)
           latest
+
+# =========================================================
+# STAGE 6 - DEPLOY BACKEND
+# =========================================================
+- stage: DeployBackend
+  displayName: Deploy Backend
+  dependsOn: PushToACR
+  condition: succeeded()
+
+  jobs:
+  - job: DeployBackendApp
+    displayName: Deploy Backend App Service
+
+    steps:
+    - task: AzureWebAppContainer@1
+      displayName: Deploy Backend Container
+      inputs:
+        azureSubscription: 'taskapp-azure-service-connection'
+        appName: 'taskapp-backend247'
+        containers: 'taskappacr247.azurecr.io/taskapp_backend:$(Build.BuildId)'
