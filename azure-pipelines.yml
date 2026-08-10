@@ -1,42 +1,209 @@
-
 # Run this pipeline automatically when code is pushed to the main branch.
 trigger:
   branches:
     include:
       - main
 
-# Run this pipeline automatically when a pull request targets the main branch.
+# Run this pipeline when a pull request targets main.
 pr:
   branches:
     include:
       - main
-# Use a Microsoft-hosted Ubuntu build agent to run the pipeline.
+
+# Microsoft-hosted Ubuntu build agent.
 pool:
   vmImage: ubuntu-latest
 
-# A pipeline is split into stages. This stage checks that the repo looks correct.
 stages:
+
+# =========================================================
+# STAGE 1 - VALIDATE
+# =========================================================
 - stage: Validate
   displayName: Validate Application
 
-  # A stage contains one or more jobs
   jobs:
   - job: ValidateRepository
     displayName: Validate Repository
 
-    # A job contains steps that run commands.
     steps:
-    # Download the repository code onto the build agent.
     - checkout: self
-    # Run simple Linux commands to prove the files/folders exist.
+
     - script: |
         echo "Repository checked out successfully"
         echo "Current directory:"
         pwd
+
         echo "Repository files:"
         ls -la
+
         echo "Backend:"
         ls -la Backend
+
         echo "Frontend:"
         ls -la frontend
       displayName: Check repository structure
+
+
+# =========================================================
+# STAGE 2 - DEPENDENCY SCAN
+# =========================================================
+- stage: DependencyScan
+  displayName: Dependency Scan
+  dependsOn: Validate
+  condition: succeeded()
+
+  jobs:
+  - job: TrivyDependencyScan
+    displayName: Trivy Dependency Scan
+
+    steps:
+    - checkout: self
+
+    - script: |
+        sudo apt-get update
+        sudo apt-get install -y wget apt-transport-https gnupg lsb-release
+        wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | gpg --dearmor | sudo tee /usr/share/keyrings/trivy.gpg > /dev/null
+        echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | sudo tee /etc/apt/sources.list.d/trivy.list
+        sudo apt-get update
+        sudo apt-get install -y trivy
+      displayName: Install Trivy
+
+    - script: |
+        trivy fs \
+          --scanners vuln \
+          --severity HIGH,CRITICAL \
+          --exit-code 1 \
+          .
+      displayName: Scan application dependencies
+
+
+# =========================================================
+# STAGE 3 - SECRET SCAN
+# =========================================================
+- stage: SecretScan
+  displayName: Secret Scan
+  dependsOn: DependencyScan
+  condition: succeeded()
+
+  jobs:
+  - job: TrivySecretScan
+    displayName: Trivy Secret Detection
+
+    steps:
+    - checkout: self
+
+    - script: |
+        sudo apt-get update
+        sudo apt-get install -y wget apt-transport-https gnupg lsb-release
+        wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | gpg --dearmor | sudo tee /usr/share/keyrings/trivy.gpg > /dev/null
+        echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | sudo tee /etc/apt/sources.list.d/trivy.list
+        sudo apt-get update
+        sudo apt-get install -y trivy
+      displayName: Install Trivy
+
+    - script: |
+        trivy fs \
+          --scanners secret \
+          --exit-code 1 \
+          .
+      displayName: Scan repository for secrets
+
+
+# =========================================================
+# STAGE 4 - BUILD AND IMAGE SCAN
+# =========================================================
+- stage: BuildAndImageScan
+  displayName: Build and Scan Docker Images
+  dependsOn: SecretScan
+  condition: succeeded()
+
+  jobs:
+  - job: BuildAndScan
+    displayName: Build and Scan Backend and Frontend
+
+    steps:
+    - checkout: self
+
+    - task: Docker@2
+      displayName: Build Backend Docker Image
+      inputs:
+        repository: 'taskapp_backend'
+        command: 'build'
+        Dockerfile: 'Backend/Dockerfile'
+        buildContext: 'Backend'
+        tags: |
+          $(Build.BuildId)
+
+    - task: Docker@2
+      displayName: Build Frontend Docker Image
+      inputs:
+        repository: 'taskapp_frontend'
+        command: 'build'
+        Dockerfile: 'frontend/Dockerfile'
+        buildContext: 'frontend'
+        tags: |
+          $(Build.BuildId)
+
+    - script: |
+        sudo apt-get update
+        sudo apt-get install -y wget apt-transport-https gnupg lsb-release
+        wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | gpg --dearmor | sudo tee /usr/share/keyrings/trivy.gpg > /dev/null
+        echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | sudo tee /etc/apt/sources.list.d/trivy.list
+        sudo apt-get update
+        sudo apt-get install -y trivy
+      displayName: Install Trivy
+
+    - script: |
+        trivy image \
+          --severity HIGH,CRITICAL \
+          --exit-code 1 \
+          taskapp_backend:$(Build.BuildId)
+      displayName: Scan Backend Docker Image
+
+    - script: |
+        trivy image \
+          --severity HIGH,CRITICAL \
+          --exit-code 1 \
+          taskapp_frontend:$(Build.BuildId)
+      displayName: Scan Frontend Docker Image
+
+
+# =========================================================
+# STAGE 5 - PUSH IMAGES TO ACR
+# =========================================================
+- stage: PushToACR
+  displayName: Push Docker Images to ACR
+  dependsOn: BuildAndImageScan
+  condition: succeeded()
+
+  jobs:
+  - job: PushImages
+    displayName: Push Backend and Frontend Images
+
+    steps:
+    - checkout: self
+
+    - task: Docker@2
+      displayName: Build and Push Backend Image
+      inputs:
+        containerRegistry: 'taskapp-acr-service-connection'
+        repository: 'taskapp_backend'
+        command: 'buildAndPush'
+        Dockerfile: 'Backend/Dockerfile'
+        buildContext: 'Backend'
+        tags: |
+          $(Build.BuildId)
+          latest
+
+    - task: Docker@2
+      displayName: Build and Push Frontend Image
+      inputs:
+        containerRegistry: 'taskapp-acr-service-connection'
+        repository: 'taskapp_frontend'
+        command: 'buildAndPush'
+        Dockerfile: 'frontend/Dockerfile'
+        buildContext: 'frontend'
+        tags: |
+          $(Build.BuildId)
+          latest
