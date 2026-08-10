@@ -19,6 +19,7 @@ COPY nginx.conf /etc/nginx/conf.d/default.conf
 
 # Copy the compiled React build into Nginx's web root.
 COPY --from=build /app/build /usr/share/nginx/html
+
 EXPOSE 80
 
 # Keep Nginx running in the foreground for Docker.
