@@ -1,27 +1,34 @@
+
+# Run this pipeline automatically when code is pushed to the main branch.
 trigger:
   branches:
     include:
       - main
 
+# Run this pipeline automatically when a pull request targets the main branch.
 pr:
   branches:
     include:
       - main
-
+# Use a Microsoft-hosted Ubuntu build agent to run the pipeline.
 pool:
   vmImage: ubuntu-latest
 
+# A pipeline is split into stages. This stage checks that the repo looks correct.
 stages:
 - stage: Validate
   displayName: Validate Application
 
+  # A stage contains one or more jobs
   jobs:
   - job: ValidateRepository
     displayName: Validate Repository
 
+    # A job contains steps that run commands.
     steps:
+    # Download the repository code onto the build agent.
     - checkout: self
-
+    # Run simple Linux commands to prove the files/folders exist.
     - script: |
         echo "Repository checked out successfully"
         echo "Current directory:"
