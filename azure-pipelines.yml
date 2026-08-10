@@ -1,117 +1,35 @@
-# Run this pipeline automatically when code is pushed to main.
 trigger:
   branches:
     include:
       - main
 
-# Also validate pull requests targeting main.
 pr:
   branches:
     include:
       - main
 
-# Shared values used by the build and deploy stages.
-variables:
-  # Folder on the VM where this app will be deployed.
-  vmDeployPath: /opt/fastapi-react-todo
-
-  # Name of the Azure DevOps SSH service connection.
-  sshServiceConnection: fastapi-vm-ssh
-
-# Use a Microsoft-hosted Ubuntu runner.
 pool:
   vmImage: ubuntu-latest
 
 stages:
-  - stage: Build
-    displayName: Build Docker Images
-    jobs:
-      - job: BuildCompose
-        displayName: Validate Docker Compose Build
-        steps:
-          # Checkout the source code onto the build agent.
-          - checkout: self
+- stage: Validate
+  displayName: Validate Application
 
-          # Show Docker versions available on the Microsoft-hosted agent.
-          - script: |
-              docker --version
-              docker compose version
-            displayName: Check Docker version
+  jobs:
+  - job: ValidateRepository
+    displayName: Validate Repository
 
-          # Build frontend and backend images before deployment.
-          - script: docker compose build
-            displayName: Build backend and frontend images
+    steps:
+    - checkout: self
 
-  - stage: Approval
-    displayName: Manual Approval
-    dependsOn: Build
-
-    # Only ask for approval for successful builds from main.
-    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
-    jobs:
-      - job: WaitForApproval
-        displayName: Wait for manual approval
-        pool: server
-        steps:
-          # This pauses the pipeline until someone approves or rejects deployment.
-          - task: ManualValidation@0
-            displayName: Approve VM deployment
-            timeoutInMinutes: 1440
-            inputs:
-              instructions: Review the build results, then approve to deploy to the Azure VM.
-              onTimeout: reject
-
-  - stage: Deploy
-    displayName: Deploy To VM
-    dependsOn: Approval
-
-    # Deploy only approved successful builds from main, not pull request validation runs.
-    condition: and(succeeded(), eq(variables['Build.SourceBranch'], 'refs/heads/main'))
-    jobs:
-      - deployment: DeployToVm
-        displayName: Deploy with Docker Compose
-        environment: fastapi-react-todo-vm
-        strategy:
-          runOnce:
-            deploy:
-              steps:
-                # Checkout files for the deployment job.
-                - checkout: self
-
-                # Create the target directory on the VM and make it writable.
-                - task: SSH@0
-                  displayName: Prepare deployment directory
-                  inputs:
-                    sshEndpoint: $(sshServiceConnection)
-                    runOptions: inline
-                    inline: |
-                      sudo mkdir -p $(vmDeployPath)
-                      sudo chown -R $USER:$USER $(vmDeployPath)
-
-                # Copy the repository files to the VM over SSH.
-                - task: CopyFilesOverSSH@0
-                  displayName: Copy project files to VM
-                  inputs:
-                    sshEndpoint: $(sshServiceConnection)
-                    sourceFolder: $(System.DefaultWorkingDirectory)
-                    contents: |
-                      **
-                      !.git/**
-                      !.github/**
-                    targetFolder: $(vmDeployPath)
-                    cleanTargetFolder: true
-                    overwrite: true
-
-                # Rebuild and restart the Docker Compose stack on the VM.
-                - task: SSH@0
-                  displayName: Rebuild and restart containers
-                  inputs:
-                    sshEndpoint: $(sshServiceConnection)
-                    runOptions: inline
-                    failOnStdErr: false
-                    inline: |
-                      set -e
-                      cd $(vmDeployPath)
-                      docker compose up -d --build 2>&1
-                      docker image prune -f 2>&1
-                      docker compose ps
+    - script: |
+        echo "Repository checked out successfully"
+        echo "Current directory:"
+        pwd
+        echo "Repository files:"
+        ls -la
+        echo "Backend:"
+        ls -la Backend
+        echo "Frontend:"
+        ls -la frontend
+      displayName: Check repository structure
