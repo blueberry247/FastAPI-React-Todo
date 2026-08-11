@@ -140,21 +140,19 @@ stages:
     - checkout: self
 
     # -----------------------------------------------------
-    # Build Backend Docker Image
+    # Build Backend Docker Image WITHOUT BuildKit
     # -----------------------------------------------------
 
-    - task: Docker@2
+    - script: |
+        export DOCKER_BUILDKIT=0
+
+        docker build \
+          --pull \
+          --no-cache \
+          -t taskapp_backend:$(Build.BuildId) \
+          -f Backend/Dockerfile \
+          Backend
       displayName: Build Backend Docker Image
-      inputs:
-        repository: 'taskapp_backend'
-        command: 'build'
-        Dockerfile: 'Backend/Dockerfile'
-        buildContext: 'Backend'
-        addPipelineData: false
-        addBaseImageData: false
-        arguments: '--pull --no-cache --provenance=false --sbom=false'
-        tags: |
-          $(Build.BuildId)
 
     # -----------------------------------------------------
     # Build Frontend Docker Image
@@ -262,7 +260,7 @@ stages:
     steps:
 
     # -----------------------------------------------------
-    # Download Images
+    # Download Scanned Images
     # -----------------------------------------------------
 
     - task: DownloadPipelineArtifact@2
