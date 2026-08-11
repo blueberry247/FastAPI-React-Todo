@@ -63,8 +63,14 @@ stages:
     - script: |
         sudo apt-get update
         sudo apt-get install -y wget apt-transport-https gnupg lsb-release
-        wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | gpg --dearmor | sudo tee /usr/share/keyrings/trivy.gpg > /dev/null
-        echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | sudo tee /etc/apt/sources.list.d/trivy.list
+
+        wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key \
+          | gpg --dearmor \
+          | sudo tee /usr/share/keyrings/trivy.gpg > /dev/null
+
+        echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" \
+          | sudo tee /etc/apt/sources.list.d/trivy.list
+
         sudo apt-get update
         sudo apt-get install -y trivy
       displayName: Install Trivy
@@ -96,8 +102,14 @@ stages:
     - script: |
         sudo apt-get update
         sudo apt-get install -y wget apt-transport-https gnupg lsb-release
-        wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | gpg --dearmor | sudo tee /usr/share/keyrings/trivy.gpg > /dev/null
-        echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | sudo tee /etc/apt/sources.list.d/trivy.list
+
+        wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key \
+          | gpg --dearmor \
+          | sudo tee /usr/share/keyrings/trivy.gpg > /dev/null
+
+        echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" \
+          | sudo tee /etc/apt/sources.list.d/trivy.list
+
         sudo apt-get update
         sudo apt-get install -y trivy
       displayName: Install Trivy
@@ -113,7 +125,6 @@ stages:
 # =========================================================
 # STAGE 4 - BUILD AND IMAGE SCAN
 # =========================================================
-
 - stage: BuildAndImageScan
   displayName: Build and Scan Docker Images
   dependsOn: SecretScan
@@ -126,9 +137,7 @@ stages:
     steps:
     - checkout: self
 
-    # -----------------------------------------------------
     # Build Backend Docker Image
-    # -----------------------------------------------------
     - task: Docker@2
       displayName: Build Backend Docker Image
       inputs:
@@ -136,12 +145,12 @@ stages:
         command: 'build'
         Dockerfile: 'Backend/Dockerfile'
         buildContext: 'Backend'
+        addPipelineData: false
+        addBaseImageData: false
         tags: |
           $(Build.BuildId)
 
-    # -----------------------------------------------------
     # Build Frontend Docker Image
-    # -----------------------------------------------------
     - task: Docker@2
       displayName: Build Frontend Docker Image
       inputs:
@@ -149,12 +158,12 @@ stages:
         command: 'build'
         Dockerfile: 'frontend/Dockerfile'
         buildContext: 'frontend'
+        addPipelineData: false
+        addBaseImageData: false
         tags: |
           $(Build.BuildId)
 
-    # -----------------------------------------------------
     # Install Trivy
-    # -----------------------------------------------------
     - script: |
         sudo apt-get update
         sudo apt-get install -y wget apt-transport-https gnupg lsb-release
@@ -170,9 +179,7 @@ stages:
         sudo apt-get install -y trivy
       displayName: Install Trivy
 
-    # -----------------------------------------------------
     # Scan Backend Docker Image
-    # -----------------------------------------------------
     - script: |
         trivy image \
           --scanners vuln \
@@ -182,9 +189,7 @@ stages:
           taskapp_backend:$(Build.BuildId)
       displayName: Scan Backend Docker Image
 
-    # -----------------------------------------------------
     # Scan Frontend Docker Image
-    # -----------------------------------------------------
     - script: |
         trivy image \
           --scanners vuln \
@@ -193,6 +198,7 @@ stages:
           --exit-code 1 \
           taskapp_frontend:$(Build.BuildId)
       displayName: Scan Frontend Docker Image
+
 
 # =========================================================
 # STAGE 5 - PUSH IMAGES TO ACR
@@ -232,6 +238,7 @@ stages:
         tags: |
           $(Build.BuildId)
           latest
+
 
 # =========================================================
 # STAGE 6 - DEPLOY BACKEND
