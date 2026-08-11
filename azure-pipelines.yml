@@ -1,23 +1,28 @@
-# Run this pipeline automatically when code is pushed to the main branch.
+# =========================================================
+# TASKAPP AZURE DEVOPS CI/CD PIPELINE
+# =========================================================
+
+# Run automatically when code is pushed to main.
 trigger:
   branches:
     include:
       - main
 
-# Run this pipeline when a pull request targets main.
+# Run when a pull request targets main.
 pr:
   branches:
     include:
       - main
 
-# Microsoft-hosted Ubuntu build agent.
+# Microsoft-hosted Linux build agent.
 pool:
   vmImage: ubuntu-latest
+
 
 stages:
 
 # =========================================================
-# STAGE 1 - VALIDATE
+# STAGE 1 - VALIDATE REPOSITORY
 # =========================================================
 - stage: Validate
   displayName: Validate Application
@@ -37,12 +42,12 @@ stages:
         echo "Repository files:"
         ls -la
 
-        echo "Backend:"
+        echo "Backend files:"
         ls -la Backend
 
-        echo "Frontend:"
+        echo "Frontend files:"
         ls -la frontend
-      displayName: Check repository structure
+      displayName: Check Repository Structure
 
 
 # =========================================================
@@ -81,7 +86,7 @@ stages:
           --severity HIGH,CRITICAL \
           --exit-code 1 \
           .
-      displayName: Scan application dependencies
+      displayName: Scan Application Dependencies
 
 
 # =========================================================
@@ -119,11 +124,11 @@ stages:
           --scanners secret \
           --exit-code 1 \
           .
-      displayName: Scan repository for secrets
+      displayName: Scan Repository For Secrets
 
 
 # =========================================================
-# STAGE 4 - BUILD AND IMAGE SCAN
+# STAGE 4 - BUILD AND SCAN DOCKER IMAGES
 # =========================================================
 - stage: BuildAndImageScan
   displayName: Build and Scan Docker Images
@@ -137,6 +142,7 @@ stages:
     steps:
     - checkout: self
 
+
     # -----------------------------------------------------
     # Build Backend Docker Image
     # -----------------------------------------------------
@@ -147,11 +153,17 @@ stages:
         command: 'build'
         Dockerfile: 'Backend/Dockerfile'
         buildContext: 'Backend'
+
+        # Disable Azure DevOps Docker metadata.
         addPipelineData: false
         addBaseImageData: false
-        arguments: '--provenance=false'
+
+        # Do not generate BuildKit provenance/SBOM attestations.
+        arguments: '--pull --no-cache --provenance=false --sbom=false'
+
         tags: |
           $(Build.BuildId)
+
 
     # -----------------------------------------------------
     # Build Frontend Docker Image
@@ -163,11 +175,15 @@ stages:
         command: 'build'
         Dockerfile: 'frontend/Dockerfile'
         buildContext: 'frontend'
+
         addPipelineData: false
         addBaseImageData: false
-        arguments: '--provenance=false'
+
+        arguments: '--pull --no-cache --provenance=false --sbom=false'
+
         tags: |
           $(Build.BuildId)
+
 
     # -----------------------------------------------------
     # Install Trivy
@@ -187,6 +203,7 @@ stages:
         sudo apt-get install -y trivy
       displayName: Install Trivy
 
+
     # -----------------------------------------------------
     # Scan Backend Docker Image
     # -----------------------------------------------------
@@ -198,6 +215,7 @@ stages:
           --exit-code 1 \
           taskapp_backend:$(Build.BuildId)
       displayName: Scan Backend Docker Image
+
 
     # -----------------------------------------------------
     # Scan Frontend Docker Image
@@ -212,8 +230,37 @@ stages:
       displayName: Scan Frontend Docker Image
 
 
+    # -----------------------------------------------------
+    # Save Scanned Images
+    # -----------------------------------------------------
+    - script: |
+        mkdir -p $(Build.ArtifactStagingDirectory)/docker-images
+
+        docker save \
+          taskapp_backend:$(Build.BuildId) \
+          -o $(Build.ArtifactStagingDirectory)/docker-images/taskapp_backend.tar
+
+        docker save \
+          taskapp_frontend:$(Build.BuildId) \
+          -o $(Build.ArtifactStagingDirectory)/docker-images/taskapp_frontend.tar
+
+        ls -lh $(Build.ArtifactStagingDirectory)/docker-images
+      displayName: Save Scanned Docker Images
+
+
+    # -----------------------------------------------------
+    # Publish Images For Next Stage
+    # -----------------------------------------------------
+    - task: PublishPipelineArtifact@1
+      displayName: Publish Scanned Docker Images
+      inputs:
+        targetPath: '$(Build.ArtifactStagingDirectory)/docker-images'
+        artifact: 'docker-images'
+        publishLocation: 'pipeline'
+
+
 # =========================================================
-# STAGE 5 - PUSH IMAGES TO ACR
+# STAGE 5 - PUSH SCANNED IMAGES TO ACR
 # =========================================================
 - stage: PushToACR
   displayName: Push Docker Images to ACR
@@ -225,31 +272,91 @@ stages:
     displayName: Push Backend and Frontend Images
 
     steps:
-    - checkout: self
 
-    - task: Docker@2
-      displayName: Build and Push Backend Image
+    # -----------------------------------------------------
+    # Download Images Built And Scanned In Stage 4
+    # -----------------------------------------------------
+    - task: DownloadPipelineArtifact@2
+      displayName: Download Scanned Docker Images
       inputs:
-        containerRegistry: 'taskapp-acr-service-connection'
-        repository: 'taskapp_backend'
-        command: 'buildAndPush'
-        Dockerfile: 'Backend/Dockerfile'
-        buildContext: 'Backend'
-        tags: |
-          $(Build.BuildId)
-          latest
+        artifact: 'docker-images'
+        path: '$(Pipeline.Workspace)/docker-images'
 
+
+    # -----------------------------------------------------
+    # Load Images Into Docker
+    # -----------------------------------------------------
+    - script: |
+        docker load \
+          -i $(Pipeline.Workspace)/docker-images/taskapp_backend.tar
+
+        docker load \
+          -i $(Pipeline.Workspace)/docker-images/taskapp_frontend.tar
+
+        docker images
+      displayName: Load Docker Images
+
+
+    # -----------------------------------------------------
+    # Login To Azure Container Registry
+    # -----------------------------------------------------
     - task: Docker@2
-      displayName: Build and Push Frontend Image
+      displayName: Login to Azure Container Registry
       inputs:
+        command: 'login'
         containerRegistry: 'taskapp-acr-service-connection'
-        repository: 'taskapp_frontend'
-        command: 'buildAndPush'
-        Dockerfile: 'frontend/Dockerfile'
-        buildContext: 'frontend'
-        tags: |
-          $(Build.BuildId)
-          latest
+
+
+    # -----------------------------------------------------
+    # Tag Backend Image
+    # -----------------------------------------------------
+    - script: |
+        docker tag \
+          taskapp_backend:$(Build.BuildId) \
+          taskappacr247.azurecr.io/taskapp_backend:$(Build.BuildId)
+
+        docker tag \
+          taskapp_backend:$(Build.BuildId) \
+          taskappacr247.azurecr.io/taskapp_backend:latest
+      displayName: Tag Backend Image
+
+
+    # -----------------------------------------------------
+    # Push Backend Image
+    # -----------------------------------------------------
+    - script: |
+        docker push \
+          taskappacr247.azurecr.io/taskapp_backend:$(Build.BuildId)
+
+        docker push \
+          taskappacr247.azurecr.io/taskapp_backend:latest
+      displayName: Push Backend Image To ACR
+
+
+    # -----------------------------------------------------
+    # Tag Frontend Image
+    # -----------------------------------------------------
+    - script: |
+        docker tag \
+          taskapp_frontend:$(Build.BuildId) \
+          taskappacr247.azurecr.io/taskapp_frontend:$(Build.BuildId)
+
+        docker tag \
+          taskapp_frontend:$(Build.BuildId) \
+          taskappacr247.azurecr.io/taskapp_frontend:latest
+      displayName: Tag Frontend Image
+
+
+    # -----------------------------------------------------
+    # Push Frontend Image
+    # -----------------------------------------------------
+    - script: |
+        docker push \
+          taskappacr247.azurecr.io/taskapp_frontend:$(Build.BuildId)
+
+        docker push \
+          taskappacr247.azurecr.io/taskapp_frontend:latest
+      displayName: Push Frontend Image To ACR
 
 
 # =========================================================
@@ -265,9 +372,38 @@ stages:
     displayName: Deploy Backend App Service
 
     steps:
+
     - task: AzureWebAppContainer@1
       displayName: Deploy Backend Container
       inputs:
         azureSubscription: 'taskapp-azure-service-connection'
+
         appName: 'taskapp-backend247'
-        containers: 'taskappacr247.azurecr.io/taskapp_backend:$(Build.BuildId)'
+
+        containers: >
+          taskappacr247.azurecr.io/taskapp_backend:$(Build.BuildId)
+
+
+# =========================================================
+# STAGE 7 - DEPLOY FRONTEND
+# =========================================================
+- stage: DeployFrontend
+  displayName: Deploy Frontend
+  dependsOn: DeployBackend
+  condition: succeeded()
+
+  jobs:
+  - job: DeployFrontendApp
+    displayName: Deploy Frontend App Service
+
+    steps:
+
+    - task: AzureWebAppContainer@1
+      displayName: Deploy Frontend Container
+      inputs:
+        azureSubscription: 'taskapp-azure-service-connection'
+
+        appName: 'taskapp-web247'
+
+        containers: >
+          taskappacr247.azurecr.io/taskapp_frontend:$(Build.BuildId)
