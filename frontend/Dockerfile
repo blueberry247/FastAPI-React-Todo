@@ -12,7 +12,11 @@ COPY . .
 RUN npm run build
 
 # Runtime stage: serve the built React app with Nginx.
-FROM nginx:1.27-alpine
+# Use the current stable Alpine image so security fixes are available.
+FROM nginx:stable-alpine
+
+# Install the latest Alpine security patches in the runtime image.
+RUN apk upgrade --no-cache
 
 # Custom Nginx config serves React and proxies API routes to FastAPI.
 COPY nginx.conf /etc/nginx/conf.d/default.conf
