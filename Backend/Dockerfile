@@ -4,11 +4,13 @@ WORKDIR /app
 
 COPY requirements.txt .
 
-# Upgrade packaging tools first
-RUN pip install --no-cache-dir --upgrade pip setuptools wheel
-
-# Install application dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+# Install dependencies and security updates in one layer
+RUN pip install --no-cache-dir --upgrade pip setuptools wheel \
+    && pip install --no-cache-dir -r requirements.txt \
+    && pip install --no-cache-dir --upgrade \
+       setuptools \
+       wheel \
+       msgpack==1.2.1
 
 COPY . .
 
