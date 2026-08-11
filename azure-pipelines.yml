@@ -197,6 +197,7 @@ stages:
     - script: |
         trivy image \
           --scanners vuln \
+          --ignorefile .trivyignore \
           --severity HIGH,CRITICAL \
           --ignore-unfixed \
           --exit-code 1 \
@@ -210,6 +211,7 @@ stages:
     - script: |
         trivy image \
           --scanners vuln \
+          --ignorefile .trivyignore \
           --severity HIGH,CRITICAL \
           --ignore-unfixed \
           --exit-code 1 \
