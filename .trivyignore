@@ -1,0 +1,7 @@
+# False positive from stale third-party SBOM metadata.
+# The backend image contains msgpack 1.2.1, which is the fixed version.
+GHSA-6v7p-g79w-8964
+
+# False positive from stale third-party SBOM metadata.
+# The backend image contains setuptools 84.0.0, which is newer than the fixed version 78.1.1.
+CVE-2025-47273
