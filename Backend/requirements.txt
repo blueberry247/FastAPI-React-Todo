@@ -6,3 +6,5 @@ SQLAlchemy
 uvicorn[standard]
 pydantic
 psycopg2-binary
+setuptools>=78.1.1
+msgpack>=1.2.1
