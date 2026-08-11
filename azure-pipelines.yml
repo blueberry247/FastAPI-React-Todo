@@ -137,7 +137,9 @@ stages:
     steps:
     - checkout: self
 
+    # -----------------------------------------------------
     # Build Backend Docker Image
+    # -----------------------------------------------------
     - task: Docker@2
       displayName: Build Backend Docker Image
       inputs:
@@ -147,10 +149,13 @@ stages:
         buildContext: 'Backend'
         addPipelineData: false
         addBaseImageData: false
+        arguments: '--provenance=false'
         tags: |
           $(Build.BuildId)
 
+    # -----------------------------------------------------
     # Build Frontend Docker Image
+    # -----------------------------------------------------
     - task: Docker@2
       displayName: Build Frontend Docker Image
       inputs:
@@ -160,10 +165,13 @@ stages:
         buildContext: 'frontend'
         addPipelineData: false
         addBaseImageData: false
+        arguments: '--provenance=false'
         tags: |
           $(Build.BuildId)
 
+    # -----------------------------------------------------
     # Install Trivy
+    # -----------------------------------------------------
     - script: |
         sudo apt-get update
         sudo apt-get install -y wget apt-transport-https gnupg lsb-release
@@ -179,7 +187,9 @@ stages:
         sudo apt-get install -y trivy
       displayName: Install Trivy
 
+    # -----------------------------------------------------
     # Scan Backend Docker Image
+    # -----------------------------------------------------
     - script: |
         trivy image \
           --scanners vuln \
@@ -189,7 +199,9 @@ stages:
           taskapp_backend:$(Build.BuildId)
       displayName: Scan Backend Docker Image
 
+    # -----------------------------------------------------
     # Scan Frontend Docker Image
+    # -----------------------------------------------------
     - script: |
         trivy image \
           --scanners vuln \
