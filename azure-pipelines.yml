@@ -2,22 +2,18 @@
 # TASKAPP AZURE DEVOPS CI/CD PIPELINE
 # =========================================================
 
-# Run automatically when code is pushed to main.
 trigger:
   branches:
     include:
       - main
 
-# Run when a pull request targets main.
 pr:
   branches:
     include:
       - main
 
-# Microsoft-hosted Linux build agent.
 pool:
   vmImage: ubuntu-latest
-
 
 stages:
 
@@ -153,14 +149,9 @@ stages:
         command: 'build'
         Dockerfile: 'Backend/Dockerfile'
         buildContext: 'Backend'
-
-        # Disable Azure DevOps Docker metadata.
         addPipelineData: false
         addBaseImageData: false
-
-        # Do not generate BuildKit provenance/SBOM attestations.
         arguments: '--pull --no-cache --provenance=false --sbom=false'
-
         tags: |
           $(Build.BuildId)
 
@@ -175,12 +166,9 @@ stages:
         command: 'build'
         Dockerfile: 'frontend/Dockerfile'
         buildContext: 'frontend'
-
         addPipelineData: false
         addBaseImageData: false
-
         arguments: '--pull --no-cache --provenance=false --sbom=false'
-
         tags: |
           $(Build.BuildId)
 
@@ -202,6 +190,51 @@ stages:
         sudo apt-get update
         sudo apt-get install -y trivy
       displayName: Install Trivy
+
+
+    # -----------------------------------------------------
+    # DIAGNOSTIC - BACKEND IMAGE
+    # -----------------------------------------------------
+    - script: |
+        echo "=============================================="
+        echo "BACKEND IMAGE DIAGNOSTICS"
+        echo "=============================================="
+
+        echo ""
+        echo "=== Docker image details ==="
+        docker inspect taskapp_backend:$(Build.BuildId)
+
+        echo ""
+        echo "=== Searching image filesystem for SBOM files ==="
+        docker run --rm \
+          taskapp_backend:$(Build.BuildId) \
+          sh -c 'find / -type f \( -iname "*sbom*" -o -iname "*spdx*" -o -iname "*cyclonedx*" \) 2>/dev/null || true'
+
+        echo ""
+        echo "=== Actual installed Python package versions ==="
+        docker run --rm \
+          taskapp_backend:$(Build.BuildId) \
+          pip show setuptools msgpack wheel
+
+        echo ""
+        echo "=== Python package list ==="
+        docker run --rm \
+          taskapp_backend:$(Build.BuildId) \
+          pip list
+
+        echo ""
+        echo "=== Check for duplicate package metadata ==="
+        docker run --rm \
+          taskapp_backend:$(Build.BuildId) \
+          sh -c 'find /usr/local/lib/python3.11/site-packages \
+          \( -iname "*msgpack*" -o -iname "*setuptools*" \) \
+          -print 2>/dev/null || true'
+
+        echo ""
+        echo "=============================================="
+        echo "BACKEND DIAGNOSTICS COMPLETE"
+        echo "=============================================="
+      displayName: Diagnose Backend Image
 
 
     # -----------------------------------------------------
@@ -274,7 +307,7 @@ stages:
     steps:
 
     # -----------------------------------------------------
-    # Download Images Built And Scanned In Stage 4
+    # Download Scanned Images
     # -----------------------------------------------------
     - task: DownloadPipelineArtifact@2
       displayName: Download Scanned Docker Images
@@ -298,7 +331,7 @@ stages:
 
 
     # -----------------------------------------------------
-    # Login To Azure Container Registry
+    # Login To ACR
     # -----------------------------------------------------
     - task: Docker@2
       displayName: Login to Azure Container Registry
@@ -377,9 +410,7 @@ stages:
       displayName: Deploy Backend Container
       inputs:
         azureSubscription: 'taskapp-azure-service-connection'
-
         appName: 'taskapp-backend247'
-
         containers: >
           taskappacr247.azurecr.io/taskapp_backend:$(Build.BuildId)
 
@@ -402,8 +433,6 @@ stages:
       displayName: Deploy Frontend Container
       inputs:
         azureSubscription: 'taskapp-azure-service-connection'
-
         appName: 'taskapp-web247'
-
         containers: >
           taskappacr247.azurecr.io/taskapp_frontend:$(Build.BuildId)
