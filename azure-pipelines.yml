@@ -199,7 +199,6 @@ stages:
     - script: |
         trivy image \
           --scanners vuln \
-          --sbom-sources none \
           --severity HIGH,CRITICAL \
           --ignore-unfixed \
           --exit-code 1 \
@@ -213,7 +212,6 @@ stages:
     - script: |
         trivy image \
           --scanners vuln \
-          --sbom-sources none \
           --severity HIGH,CRITICAL \
           --ignore-unfixed \
           --exit-code 1 \
