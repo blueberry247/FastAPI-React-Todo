@@ -39,6 +39,11 @@ variables:
   backendImage: taskapp_backend
   frontendImage: taskapp_frontend
 
+  # Human-readable release tags for ACR and App Service deployments.
+  # Increase these when you want the next visible application release.
+  backendVersion: v1.1
+  frontendVersion: v1.1
+
   # Azure App Service names.
   backendAppName: taskapp-backend247
   frontendAppName: taskapp-web247
@@ -172,21 +177,26 @@ stages:
       displayName: Scan Docker Images
 
     # Add ACR tags to the already-scanned local images.
-    # Build ID gives an immutable version.
+    # v1.1 is the production-style release tag.
+    # Build ID gives an immutable CI trace tag.
     # latest gives a convenient moving tag.
     - script: |
+        docker tag $(backendImage):$(Build.BuildId) $(acrLoginServer)/$(backendImage):$(backendVersion)
         docker tag $(backendImage):$(Build.BuildId) $(acrLoginServer)/$(backendImage):$(Build.BuildId)
         docker tag $(backendImage):$(Build.BuildId) $(acrLoginServer)/$(backendImage):latest
 
+        docker tag $(frontendImage):$(Build.BuildId) $(acrLoginServer)/$(frontendImage):$(frontendVersion)
         docker tag $(frontendImage):$(Build.BuildId) $(acrLoginServer)/$(frontendImage):$(Build.BuildId)
         docker tag $(frontendImage):$(Build.BuildId) $(acrLoginServer)/$(frontendImage):latest
       displayName: Tag Docker Images
 
     # Push only the scanned and approved images to Azure Container Registry.
     - script: |
+        docker push $(acrLoginServer)/$(backendImage):$(backendVersion)
         docker push $(acrLoginServer)/$(backendImage):$(Build.BuildId)
         docker push $(acrLoginServer)/$(backendImage):latest
 
+        docker push $(acrLoginServer)/$(frontendImage):$(frontendVersion)
         docker push $(acrLoginServer)/$(frontendImage):$(Build.BuildId)
         docker push $(acrLoginServer)/$(frontendImage):latest
       displayName: Push Docker Images
@@ -211,7 +221,7 @@ stages:
       inputs:
         azureSubscription: $(azureServiceConnection)
         appName: $(backendAppName)
-        containers: $(acrLoginServer)/$(backendImage):$(Build.BuildId)
+        containers: $(acrLoginServer)/$(backendImage):$(backendVersion)
 
 # =========================================================
 # STAGE 4 - DEPLOY FRONTEND
@@ -234,4 +244,4 @@ stages:
       inputs:
         azureSubscription: $(azureServiceConnection)
         appName: $(frontendAppName)
-        containers: $(acrLoginServer)/$(frontendImage):$(Build.BuildId)
+        containers: $(acrLoginServer)/$(frontendImage):$(frontendVersion)
