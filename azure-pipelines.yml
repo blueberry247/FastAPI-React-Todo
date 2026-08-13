@@ -40,9 +40,9 @@ variables:
   frontendImage: taskapp_frontend
 
   # Human-readable release tags for ACR and App Service deployments.
-  # Increase these when you want the next visible application release.
-  backendVersion: v1.1
-  frontendVersion: v1.1
+  # Example: v1.1.247, where 247 is the Azure DevOps build ID.
+  backendVersion: v1.1.$(Build.BuildId)
+  frontendVersion: v1.1.$(Build.BuildId)
 
   # Azure App Service names.
   backendAppName: taskapp-backend247
@@ -177,7 +177,7 @@ stages:
       displayName: Scan Docker Images
 
     # Add ACR tags to the already-scanned local images.
-    # v1.1 is the production-style release tag.
+    # v1.1.BuildId is the production-style release tag.
     # Build ID gives an immutable CI trace tag.
     # latest gives a convenient moving tag.
     - script: |
