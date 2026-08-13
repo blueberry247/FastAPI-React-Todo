@@ -37,3 +37,5 @@ docker-compose.yaml
 *.tfplan
 crash.log
 crash.*.log
+backend.md
+backend.txt
