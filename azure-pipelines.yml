@@ -143,32 +143,23 @@ stages:
           $(Build.BuildId)
 
     # -----------------------------------------------------
-    # Install Trivy
+    # Pull Trivy Docker Image
     # -----------------------------------------------------
 
     - script: |
-        sudo apt-get update
-        sudo apt-get install -y wget apt-transport-https gnupg lsb-release
-
-        wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key \
-          | gpg --dearmor \
-          | sudo tee /usr/share/keyrings/trivy.gpg > /dev/null
-
-        echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" \
-          | sudo tee /etc/apt/sources.list.d/trivy.list
-
-        sudo apt-get update
-        sudo apt-get install -y trivy
-      displayName: Install Trivy
+        docker pull aquasec/trivy:latest
+      displayName: Pull Trivy Docker Image
 
     # -----------------------------------------------------
     # Scan Backend Docker Image
     # -----------------------------------------------------
-
     - script: |
-        trivy image \
+        docker run --rm \
+          -v /var/run/docker.sock:/var/run/docker.sock \
+          -v $(Build.SourcesDirectory):/workspace \
+          aquasec/trivy:latest image \
           --scanners vuln \
-          --ignorefile $(Build.SourcesDirectory)/.trivyignore \
+          --ignorefile /workspace/.trivyignore \
           --severity HIGH,CRITICAL \
           --ignore-unfixed \
           --exit-code 1 \
@@ -180,9 +171,12 @@ stages:
     # -----------------------------------------------------
 
     - script: |
-        trivy image \
+        docker run --rm \
+          -v /var/run/docker.sock:/var/run/docker.sock \
+          -v $(Build.SourcesDirectory):/workspace \
+          aquasec/trivy:latest image \
           --scanners vuln \
-          --ignorefile $(Build.SourcesDirectory)/.trivyignore \
+          --ignorefile /workspace/.trivyignore \
           --severity HIGH,CRITICAL \
           --ignore-unfixed \
           --exit-code 1 \
@@ -205,6 +199,7 @@ stages:
           -o $(Build.ArtifactStagingDirectory)/docker-images/taskapp_frontend.tar
       displayName: Save Scanned Docker Images
 
+
     # -----------------------------------------------------
     # Publish Images For Next Stage
     # -----------------------------------------------------
@@ -215,7 +210,6 @@ stages:
         targetPath: '$(Build.ArtifactStagingDirectory)/docker-images'
         artifact: 'docker-images'
         publishLocation: 'pipeline'
-
 
 # =========================================================
 # STAGE 5 - PUSH SCANNED IMAGES TO ACR
