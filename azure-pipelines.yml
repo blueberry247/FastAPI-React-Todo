@@ -1,36 +1,67 @@
 # =========================================================
 # TASKAPP AZURE DEVOPS CI/CD PIPELINE
 # =========================================================
+# This pipeline:
+# 1. Scans the repository for dependency vulnerabilities and secrets.
+# 2. Builds backend and frontend Docker images.
+# 3. Scans Docker images before publishing.
+# 4. Pushes approved images to Azure Container Registry.
+# 5. Deploys backend and frontend containers to Azure App Service.
+# =========================================================
 
 trigger:
   branches:
     include:
+      # Run pipeline automatically when code is pushed to main.
       - main
 
 pr:
   branches:
     include:
+      # Run validation automatically when a pull request targets main.
       - main
 
 pool:
+  # Use a Microsoft-hosted Ubuntu build agent.
   vmImage: ubuntu-latest
 
+variables:
+  # Azure Container Registry login server.
+  acrLoginServer: taskappacr247.azurecr.io
+
+  # Azure DevOps service connection for ACR.
+  acrServiceConnection: taskapp-acr-service-connection
+
+  # Azure DevOps service connection for Azure App Service deployment.
+  azureServiceConnection: taskapp-azure-service-connection
+
+  # Docker image repository names.
+  backendImage: taskapp_backend
+  frontendImage: taskapp_frontend
+
+  # Azure App Service names.
+  backendAppName: taskapp-backend247
+  frontendAppName: taskapp-web247
+
 stages:
-
 # =========================================================
-# STAGE 2 - DEPENDENCY SCAN
+# STAGE 1 - SECURITY SCANS
 # =========================================================
-
-- stage: DependencyScan
-  displayName: Dependency Scan
+# This stage scans the source code before any Docker images are pushed.
+# It blocks the pipeline if HIGH/CRITICAL vulnerabilities or secrets are found.
+# =========================================================
+- stage: SecurityScan
+  displayName: Security Scans
 
   jobs:
-  - job: TrivyDependencyScan
-    displayName: Trivy Dependency Scan
+  - job: ScanRepository
+    displayName: Dependency and Secret Scans
 
     steps:
+    # Download the repository code to the build agent.
     - checkout: self
 
+    # Install Trivy from Aqua Security's official apt repository.
     - script: |
         sudo apt-get update
         sudo apt-get install -y wget apt-transport-https gnupg lsb-release
@@ -46,113 +77,72 @@ stages:
         sudo apt-get install -y trivy
       displayName: Install Trivy
 
+    # Scan the repository files for dependency vulnerabilities.
+    # The pipeline fails if HIGH or CRITICAL issues are found.
     - script: |
         trivy fs \
           --scanners vuln \
           --severity HIGH,CRITICAL \
           --exit-code 1 \
           .
-      displayName: Scan Application Dependencies
+      displayName: Scan Dependencies
 
-
-# =========================================================
-# STAGE 3 - SECRET SCAN
-# =========================================================
-
-- stage: SecretScan
-  displayName: Secret Scan
-  dependsOn: DependencyScan
-  condition: succeeded()
-
-  jobs:
-  - job: TrivySecretScan
-    displayName: Trivy Secret Detection
-
-    steps:
-    - checkout: self
-
-    - script: |
-        sudo apt-get update
-        sudo apt-get install -y wget apt-transport-https gnupg lsb-release
-
-        wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key \
-          | gpg --dearmor \
-          | sudo tee /usr/share/keyrings/trivy.gpg > /dev/null
-
-        echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" \
-          | sudo tee /etc/apt/sources.list.d/trivy.list
-
-        sudo apt-get update
-        sudo apt-get install -y trivy
-      displayName: Install Trivy
-
+    # Scan the repository for committed passwords, tokens, or keys.
+    # The pipeline fails if secrets are found.
     - script: |
         trivy fs \
           --scanners secret \
           --exit-code 1 \
           .
-      displayName: Scan Repository For Secrets
-
+      displayName: Scan Secrets
 
 # =========================================================
-# STAGE 4 - BUILD AND SCAN DOCKER IMAGES
+# STAGE 2 - BUILD, SCAN AND PUSH IMAGES
 # =========================================================
-
-- stage: BuildAndImageScan
-  displayName: Build and Scan Docker Images
-  dependsOn: SecretScan
+# This stage builds backend/frontend images, scans them, and only pushes them
+# to ACR if the image scans pass.
+# =========================================================
+- stage: BuildScanPush
+  displayName: Build, Scan and Push Images
+  dependsOn: SecurityScan
   condition: succeeded()
 
   jobs:
-  - job: BuildAndScan
-    displayName: Build and Scan Backend and Frontend
+  - job: BuildScanPushImages
+    displayName: Build, Scan and Push Docker Images
 
     steps:
+    # Download the repository code to the build agent.
     - checkout: self
 
-    # -----------------------------------------------------
-    # Build Backend Docker Image WITHOUT BuildKit
-    # -----------------------------------------------------
+    # Login to Azure Container Registry so Docker can push images later.
+    - task: Docker@2
+      displayName: Login to ACR
+      inputs:
+        command: login
+        containerRegistry: $(acrServiceConnection)
 
+    # Build backend and frontend images locally on the build agent.
+    # --pull gets the latest base image.
+    # --no-cache avoids stale dependency/image layers.
+    # DOCKER_BUILDKIT=0 avoids BuildKit SBOM metadata false positives.
     - script: |
         export DOCKER_BUILDKIT=0
 
-        docker build \
-          --pull \
-          --no-cache \
-          -t taskapp_backend:$(Build.BuildId) \
+        docker build --pull --no-cache \
+          -t $(backendImage):$(Build.BuildId) \
           -f Backend/Dockerfile \
           Backend
-      displayName: Build Backend Docker Image
 
-    # -----------------------------------------------------
-    # Build Frontend Docker Image
-    # -----------------------------------------------------
+        docker build --pull --no-cache \
+          -t $(frontendImage):$(Build.BuildId) \
+          -f frontend/Dockerfile \
+          frontend
+      displayName: Build Docker Images
 
-    - task: Docker@2
-      displayName: Build Frontend Docker Image
-      inputs:
-        repository: 'taskapp_frontend'
-        command: 'build'
-        Dockerfile: 'frontend/Dockerfile'
-        buildContext: 'frontend'
-        addPipelineData: false
-        addBaseImageData: false
-        arguments: '--pull --no-cache --provenance=false --sbom=false'
-        tags: |
-          $(Build.BuildId)
-
-    # -----------------------------------------------------
-    # Pull Trivy Docker Image
-    # -----------------------------------------------------
-
-    - script: |
-        docker pull aquasec/trivy:latest
-      displayName: Pull Trivy Docker Image
-
-    # -----------------------------------------------------
-    # Scan Backend Docker Image
-    # -----------------------------------------------------
+    # Scan both Docker images before pushing them to ACR.
+    # Uses .trivyignore for approved false positives.
+    # The pipeline fails if HIGH/CRITICAL vulnerabilities are found.
     - script: |
         docker run --rm \
           -v /var/run/docker.sock:/var/run/docker.sock \
@@ -163,14 +153,8 @@ stages:
           --severity HIGH,CRITICAL \
           --ignore-unfixed \
           --exit-code 1 \
-          taskapp_backend:$(Build.BuildId)
-      displayName: Scan Backend Docker Image
+          $(backendImage):$(Build.BuildId)
 
-    # -----------------------------------------------------
-    # Scan Frontend Docker Image
-    # -----------------------------------------------------
-
-    - script: |
         docker run --rm \
           -v /var/run/docker.sock:/var/run/docker.sock \
           -v $(Build.SourcesDirectory):/workspace \
@@ -180,126 +164,37 @@ stages:
           --severity HIGH,CRITICAL \
           --ignore-unfixed \
           --exit-code 1 \
-          taskapp_frontend:$(Build.BuildId)
-      displayName: Scan Frontend Docker Image
+          $(frontendImage):$(Build.BuildId)
+      displayName: Scan Docker Images
 
-    # -----------------------------------------------------
-    # Save Successfully Scanned Images
-    # -----------------------------------------------------
-
+    # Add ACR tags to the already-scanned local images.
+    # Build ID gives an immutable version.
+    # latest gives a convenient moving tag.
     - script: |
-        mkdir -p $(Build.ArtifactStagingDirectory)/docker-images
+        docker tag $(backendImage):$(Build.BuildId) $(acrLoginServer)/$(backendImage):$(Build.BuildId)
+        docker tag $(backendImage):$(Build.BuildId) $(acrLoginServer)/$(backendImage):latest
 
-        docker save \
-          taskapp_backend:$(Build.BuildId) \
-          -o $(Build.ArtifactStagingDirectory)/docker-images/taskapp_backend.tar
-
-        docker save \
-          taskapp_frontend:$(Build.BuildId) \
-          -o $(Build.ArtifactStagingDirectory)/docker-images/taskapp_frontend.tar
-      displayName: Save Scanned Docker Images
-
-
-    # -----------------------------------------------------
-    # Publish Images For Next Stage
-    # -----------------------------------------------------
-
-    - task: PublishPipelineArtifact@1
-      displayName: Publish Scanned Docker Images
-      inputs:
-        targetPath: '$(Build.ArtifactStagingDirectory)/docker-images'
-        artifact: 'docker-images'
-        publishLocation: 'pipeline'
-
-# =========================================================
-# STAGE 5 - PUSH SCANNED IMAGES TO ACR
-# =========================================================
-
-- stage: PushToACR
-  displayName: Push Docker Images to ACR
-  dependsOn: BuildAndImageScan
-  condition: succeeded()
-
-  jobs:
-  - job: PushImages
-    displayName: Push Backend and Frontend Images
-
-    steps:
-
-    # -----------------------------------------------------
-    # Download Scanned Images
-    # -----------------------------------------------------
-
-    - task: DownloadPipelineArtifact@2
-      displayName: Download Scanned Docker Images
-      inputs:
-        artifact: 'docker-images'
-        path: '$(Pipeline.Workspace)/docker-images'
-
-    # -----------------------------------------------------
-    # Load Images
-    # -----------------------------------------------------
-
-    - script: |
-        docker load \
-          -i $(Pipeline.Workspace)/docker-images/taskapp_backend.tar
-
-        docker load \
-          -i $(Pipeline.Workspace)/docker-images/taskapp_frontend.tar
-      displayName: Load Scanned Docker Images
-
-    # -----------------------------------------------------
-    # Login To Azure Container Registry
-    # -----------------------------------------------------
-
-    - task: Docker@2
-      displayName: Login to Azure Container Registry
-      inputs:
-        command: 'login'
-        containerRegistry: 'taskapp-acr-service-connection'
-
-    # -----------------------------------------------------
-    # Tag Images
-    # -----------------------------------------------------
-
-    - script: |
-        docker tag \
-          taskapp_backend:$(Build.BuildId) \
-          taskappacr247.azurecr.io/taskapp_backend:$(Build.BuildId)
-
-        docker tag \
-          taskapp_backend:$(Build.BuildId) \
-          taskappacr247.azurecr.io/taskapp_backend:latest
-
-        docker tag \
-          taskapp_frontend:$(Build.BuildId) \
-          taskappacr247.azurecr.io/taskapp_frontend:$(Build.BuildId)
-
-        docker tag \
-          taskapp_frontend:$(Build.BuildId) \
-          taskappacr247.azurecr.io/taskapp_frontend:latest
+        docker tag $(frontendImage):$(Build.BuildId) $(acrLoginServer)/$(frontendImage):$(Build.BuildId)
+        docker tag $(frontendImage):$(Build.BuildId) $(acrLoginServer)/$(frontendImage):latest
       displayName: Tag Docker Images
 
-    # -----------------------------------------------------
-    # Push Images
-    # -----------------------------------------------------
-
+    # Push only the scanned and approved images to Azure Container Registry.
     - script: |
-        docker push taskappacr247.azurecr.io/taskapp_backend:$(Build.BuildId)
-        docker push taskappacr247.azurecr.io/taskapp_backend:latest
+        docker push $(acrLoginServer)/$(backendImage):$(Build.BuildId)
+        docker push $(acrLoginServer)/$(backendImage):latest
 
-        docker push taskappacr247.azurecr.io/taskapp_frontend:$(Build.BuildId)
-        docker push taskappacr247.azurecr.io/taskapp_frontend:latest
-      displayName: Push Docker Images To ACR
-
+        docker push $(acrLoginServer)/$(frontendImage):$(Build.BuildId)
+        docker push $(acrLoginServer)/$(frontendImage):latest
+      displayName: Push Docker Images
 
 # =========================================================
-# STAGE 6 - DEPLOY BACKEND
+# STAGE 3 - DEPLOY BACKEND
 # =========================================================
-
+# Deploys the backend container image from ACR to Azure App Service.
+# =========================================================
 - stage: DeployBackend
   displayName: Deploy Backend
-  dependsOn: PushToACR
+  dependsOn: BuildScanPush
   condition: succeeded()
 
   jobs:
@@ -307,19 +202,19 @@ stages:
     displayName: Deploy Backend App Service
 
     steps:
-
     - task: AzureWebAppContainer@1
       displayName: Deploy Backend Container
       inputs:
-        azureSubscription: 'taskapp-azure-service-connection'
-        appName: 'taskapp-backend247'
-        containers: 'taskappacr247.azurecr.io/taskapp_backend:$(Build.BuildId)'
-
+        azureSubscription: $(azureServiceConnection)
+        appName: $(backendAppName)
+        containers: $(acrLoginServer)/$(backendImage):$(Build.BuildId)
 
 # =========================================================
-# STAGE 7 - DEPLOY FRONTEND
+# STAGE 4 - DEPLOY FRONTEND
 # =========================================================
-
+# Deploys the frontend container image from ACR to Azure App Service.
+# Runs after backend deployment succeeds.
+# =========================================================
 - stage: DeployFrontend
   displayName: Deploy Frontend
   dependsOn: DeployBackend
@@ -330,10 +225,9 @@ stages:
     displayName: Deploy Frontend App Service
 
     steps:
-
     - task: AzureWebAppContainer@1
       displayName: Deploy Frontend Container
       inputs:
-        azureSubscription: 'taskapp-azure-service-connection'
-        appName: 'taskapp-web247'
-        containers: 'taskappacr247.azurecr.io/taskapp_frontend:$(Build.BuildId)'
+        azureSubscription: $(azureServiceConnection)
+        appName: $(frontendAppName)
+        containers: $(acrLoginServer)/$(frontendImage):$(Build.BuildId)
