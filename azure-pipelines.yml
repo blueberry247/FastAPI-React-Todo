@@ -23,8 +23,6 @@ stages:
 
 - stage: DependencyScan
   displayName: Dependency Scan
-  dependsOn: Validate
-  condition: succeeded()
 
   jobs:
   - job: TrivyDependencyScan
