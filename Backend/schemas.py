@@ -36,3 +36,17 @@ class User(BaseModel):
     items: List[Item] = []
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class UserLogin(BaseModel):
+    """Credentials submitted by the login page."""
+
+    email: str
+    password: str
+
+
+class Token(BaseModel):
+    """JWT response returned after successful login."""
+
+    access_token: str
+    token_type: str

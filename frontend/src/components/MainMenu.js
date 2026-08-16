@@ -1,21 +1,47 @@
 import { useEffect, useState } from "react";
 
 import apiRequest from "../CRUD utils/apiRequest";
+import LoginPage from "./LoginPage";
 import TaskForm from "./TaskForm";
 import TaskList from "./TaskList";
 
-const API_USER_ID = 1;
-
 const MainMenu = () => {
+  const [token, setToken] = useState(() => localStorage.getItem("taskapp_token"));
   const [tasks, setTasks] = useState([]);
   const [newTaskText, setNewTaskText] = useState("");
   const [error, setError] = useState(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(Boolean(token));
 
-  // Load tasks once when the page opens.
   useEffect(() => {
-    loadTasks();
+    const handleUnauthorized = () => {
+      setToken(null);
+      setTasks([]);
+      setError("Your session expired. Please log in again.");
+    };
+
+    window.addEventListener("taskapp:unauthorized", handleUnauthorized);
+    return () => window.removeEventListener("taskapp:unauthorized", handleUnauthorized);
   }, []);
+
+  useEffect(() => {
+    if (token) {
+      loadTasks();
+    }
+  }, [token]);
+
+  const handleLogin = (accessToken) => {
+    localStorage.setItem("taskapp_token", accessToken);
+    setToken(accessToken);
+    setError(null);
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem("taskapp_token");
+    setToken(null);
+    setTasks([]);
+    setNewTaskText("");
+    setError(null);
+  };
 
   const loadTasks = async () => {
     try {
@@ -37,7 +63,7 @@ const MainMenu = () => {
     if (!content) return;
 
     try {
-      const createdTask = await apiRequest(`/users/${API_USER_ID}/items/`, {
+      const createdTask = await apiRequest("/items/", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ content, is_active: true }),
@@ -97,14 +123,23 @@ const MainMenu = () => {
     }
   };
 
+  if (!token) {
+    return <LoginPage onLogin={handleLogin} />;
+  }
+
   return (
     <div className="min-h-screen bg-gray-50">
       <header className="border-b-4 border-black bg-white">
         <div className="mx-auto flex max-w-5xl items-center justify-between px-6 py-4">
           <h1 className="text-xl font-bold">FastAPI + React ToDo</h1>
-          <a className="font-medium text-pink-500" href="/docs" target="_blank" rel="noreferrer">
-            API Docs
-          </a>
+          <div className="flex items-center gap-4">
+            <a className="font-medium text-pink-500" href="/docs" target="_blank" rel="noreferrer">
+              API Docs
+            </a>
+            <button className="rounded bg-black px-4 py-2 text-sm font-bold text-white" onClick={handleLogout}>
+              Logout
+            </button>
+          </div>
         </div>
       </header>
 

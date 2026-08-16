@@ -1,12 +1,11 @@
 from typing import List
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
-from azure.identity import DefaultAzureCredential
-from azure.keyvault.secrets import SecretClient
 
 
+import auth
 import crud
 import models
 import schemas
@@ -20,19 +19,23 @@ app = FastAPI(title="Simple FastAPI React ToDo")
 
 @app.on_event("startup")
 def seed_default_user():
-    """Create user id=1 so the existing frontend can create tasks.
+    """Create or migrate the default user used by the existing ToDo flow.
 
-    The original app hardcodes user id 1. This startup function makes sure that
-    user exists automatically, so you do not need to create it manually in /docs.
+    Older demo deployments stored a non-production password marker. If that
+    value exists, replace it with a bcrypt hash without exposing the password.
     """
 
     db = SessionLocal()
     try:
-        if not crud.get_user(db, 1):
+        default_user = crud.get_user_by_email(db, "default@todo.app")
+        if not default_user:
             crud.create_user(
                 db,
                 schemas.UserCreate(email="default@todo.app", password="password"),
             )
+        elif default_user.hashed_password == "password-demo-hash":
+            default_user.hashed_password = auth.hash_password("password")
+            db.commit()
     finally:
         db.close()
 
@@ -40,7 +43,7 @@ def seed_default_user():
 # Allow the React development server and Docker/Nginx frontend to call the API.
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost", "http://localhost:3000"],
+    allow_origins=["http://localhost", "http://localhost:3000", "https://www.mfarooq.it.com"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -73,15 +76,52 @@ def create_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
     return crud.create_user(db, user)
 
 
+@app.post("/login", response_model=schemas.Token)
+def login(credentials: schemas.UserLogin, db: Session = Depends(get_db)):
+    """Verify credentials and return a Key Vault-signed JWT access token."""
+
+    user = auth.authenticate_user(db, credentials.email, credentials.password)
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect email or password",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    try:
+        token = auth.create_access_token(subject=user.email)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="JWT signing key is unavailable",
+        ) from exc
+
+    return {"access_token": token, "token_type": "bearer"}
+
+
 @app.get("/users/", response_model=List[schemas.User])
-def read_users(db: Session = Depends(get_db)):
+def read_users(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
     """Return all users."""
 
     return crud.get_users(db)
 
 
+@app.get("/users/me", response_model=schemas.User)
+def read_current_user(current_user: models.User = Depends(auth.get_current_user)):
+    """Return the authenticated user."""
+
+    return current_user
+
+
 @app.get("/users/{user_id}", response_model=schemas.User)
-def read_user(user_id: int, db: Session = Depends(get_db)):
+def read_user(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
     """Return one user by id."""
 
     user = crud.get_user(db, user_id)
@@ -95,19 +135,34 @@ def create_item_for_user(
     user_id: int,
     item: schemas.ItemCreate,
     db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user),
 ):
     """Create a ToDo item for a user."""
 
-    if crud.get_user(db, user_id) is None:
-        raise HTTPException(status_code=404, detail="User not found")
-    return crud.create_item(db, user_id, item)
+    if user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Cannot create tasks for another user")
+    return crud.create_item(db, current_user.id, item)
+
+
+@app.post("/items/", response_model=schemas.Item)
+def create_item(
+    item: schemas.ItemCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
+    """Create a ToDo item for the authenticated user."""
+
+    return crud.create_item(db, current_user.id, item)
 
 
 @app.get("/items/", response_model=List[schemas.Item])
-def read_items(db: Session = Depends(get_db)):
-    """Return all ToDo items."""
+def read_items(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
+    """Return the authenticated user's ToDo items."""
 
-    return crud.get_items(db)
+    return crud.get_items(db, current_user.id)
 
 
 @app.put("/items/{item_id}/", response_model=schemas.Item)
@@ -115,33 +170,19 @@ def update_item(
     item_id: int,
     item: schemas.ItemCreate,
     db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user),
 ):
     """Update a ToDo item."""
 
-    return crud.update_item(db, item_id, item)
+    return crud.update_item(db, item_id, item, current_user.id)
 
 
 @app.delete("/items/{item_id}/")
-def delete_item(item_id: int, db: Session = Depends(get_db)):
+def delete_item(
+    item_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_user),
+):
     """Delete a ToDo item."""
 
-    return crud.delete_item(db, item_id)
-
-@app.get("/keyvault-test")
-def keyvault_test():
-    vault_url = "https://taskapp-kv247.vault.azure.net/"
-
-    credential = DefaultAzureCredential()
-
-    client = SecretClient(
-        vault_url=vault_url,
-        credential=credential
-    )
-
-    secret = client.get_secret("test-secret")
-
-    return {
-        "keyvault": "connected",
-        "secret_name": secret.name,
-        "secret_loaded": bool(secret.value)
-    }
+    return crud.delete_item(db, item_id, current_user.id)

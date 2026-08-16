@@ -28,15 +28,13 @@ def get_users(db: Session):
 
 
 def create_user(db: Session, user: schemas.UserCreate):
-    """Create a user.
+    """Create a user with a bcrypt-hashed password."""
 
-    This demo app is not a real login system, so the password is intentionally
-    simple. In a production app, use a real password hashing library.
-    """
+    from auth import hash_password
 
     db_user = models.User(
         email=user.email,
-        hashed_password=f"{user.password}-demo-hash",
+        hashed_password=hash_password(user.password),
     )
     db.add(db_user)
     db.commit()
@@ -44,10 +42,10 @@ def create_user(db: Session, user: schemas.UserCreate):
     return db_user
 
 
-def get_items(db: Session):
-    """Return all ToDo items."""
+def get_items(db: Session, user_id: int):
+    """Return ToDo items owned by one user."""
 
-    return db.query(models.Item).order_by(models.Item.id).all()
+    return db.query(models.Item).filter(models.Item.owner_id == user_id).order_by(models.Item.id).all()
 
 
 def create_item(db: Session, user_id: int, item: schemas.ItemCreate):
@@ -64,11 +62,11 @@ def create_item(db: Session, user_id: int, item: schemas.ItemCreate):
     return db_item
 
 
-def update_item(db: Session, item_id: int, item: schemas.ItemCreate):
+def update_item(db: Session, item_id: int, item: schemas.ItemCreate, user_id: int):
     """Update a ToDo item's text and active/completed state."""
 
     db_item = db.get(models.Item, item_id)
-    if db_item is None:
+    if db_item is None or db_item.owner_id != user_id:
         raise HTTPException(status_code=404, detail="Item not found")
 
     db_item.content = item.content
@@ -78,11 +76,11 @@ def update_item(db: Session, item_id: int, item: schemas.ItemCreate):
     return db_item
 
 
-def delete_item(db: Session, item_id: int):
+def delete_item(db: Session, item_id: int, user_id: int):
     """Delete a ToDo item."""
 
     db_item = db.get(models.Item, item_id)
-    if db_item is None:
+    if db_item is None or db_item.owner_id != user_id:
         raise HTTPException(status_code=404, detail="Item not found")
 
     db.delete(db_item)
