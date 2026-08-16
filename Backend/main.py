@@ -3,6 +3,9 @@ from typing import List
 from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
+from azure.identity import DefaultAzureCredential
+from azure.keyvault.secrets import SecretClient
+
 
 import crud
 import models
@@ -123,3 +126,22 @@ def delete_item(item_id: int, db: Session = Depends(get_db)):
     """Delete a ToDo item."""
 
     return crud.delete_item(db, item_id)
+
+@app.get("/keyvault-test")
+def keyvault_test():
+    vault_url = "https://taskapp-kv247.vault.azure.net/"
+
+    credential = DefaultAzureCredential()
+
+    client = SecretClient(
+        vault_url=vault_url,
+        credential=credential
+    )
+
+    secret = client.get_secret("test-secret")
+
+    return {
+        "keyvault": "connected",
+        "secret_name": secret.name,
+        "secret_loaded": bool(secret.value)
+    }
