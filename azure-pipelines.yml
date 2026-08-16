@@ -52,8 +52,8 @@ stages:
 # =========================================================
 # STAGE 1 - SECURITY SCANS
 # =========================================================
-# This stage scans the source code before any Docker images are pushed.
-# It blocks the pipeline if HIGH/CRITICAL vulnerabilities or secrets are found.
+# Uses the official Trivy Docker image instead of installing
+# Trivy on the Azure DevOps build agent.
 # =========================================================
 - stage: SecurityScan
   displayName: Security Scans
@@ -63,42 +63,51 @@ stages:
     displayName: Dependency and Secret Scans
 
     steps:
-    # Download the repository code to the build agent.
+
+    # -----------------------------------------------------
+    # Checkout repository
+    # -----------------------------------------------------
+
     - checkout: self
 
-    # Install Trivy from Aqua Security's official apt repository.
+
+    # -----------------------------------------------------
+    # Pull official Trivy image
+    # -----------------------------------------------------
+
     - script: |
-        sudo apt-get update
-        sudo apt-get install -y wget apt-transport-https gnupg lsb-release
+        docker pull aquasec/trivy:latest
+      displayName: Pull Trivy Docker Image
 
-        wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key \
-          | gpg --dearmor \
-          | sudo tee /usr/share/keyrings/trivy.gpg > /dev/null
 
-        echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" \
-          | sudo tee /etc/apt/sources.list.d/trivy.list
+    # -----------------------------------------------------
+    # Dependency vulnerability scan
+    # -----------------------------------------------------
 
-        sudo apt-get update
-        sudo apt-get install -y trivy
-      displayName: Install Trivy
-
-    # Scan the repository files for dependency vulnerabilities.
-    # The pipeline fails if HIGH or CRITICAL issues are found.
     - script: |
-        trivy fs \
+        docker run --rm \
+          -v "$(Build.SourcesDirectory):/workspace" \
+          aquasec/trivy:latest \
+          fs \
           --scanners vuln \
           --severity HIGH,CRITICAL \
           --exit-code 1 \
-          .
+          /workspace
       displayName: Scan Dependencies
 
-    # Scan the repository for committed passwords, tokens, or keys.
-    # The pipeline fails if secrets are found.
+
+    # -----------------------------------------------------
+    # Secret scan
+    # -----------------------------------------------------
+
     - script: |
-        trivy fs \
+        docker run --rm \
+          -v "$(Build.SourcesDirectory):/workspace" \
+          aquasec/trivy:latest \
+          fs \
           --scanners secret \
           --exit-code 1 \
-          .
+          /workspace
       displayName: Scan Secrets
 
 # =========================================================
@@ -182,22 +191,18 @@ stages:
     # latest gives a convenient moving tag.
     - script: |
         docker tag $(backendImage):$(Build.BuildId) $(acrLoginServer)/$(backendImage):$(backendVersion)
-        docker tag $(backendImage):$(Build.BuildId) $(acrLoginServer)/$(backendImage):$(Build.BuildId)
         docker tag $(backendImage):$(Build.BuildId) $(acrLoginServer)/$(backendImage):latest
 
         docker tag $(frontendImage):$(Build.BuildId) $(acrLoginServer)/$(frontendImage):$(frontendVersion)
-        docker tag $(frontendImage):$(Build.BuildId) $(acrLoginServer)/$(frontendImage):$(Build.BuildId)
         docker tag $(frontendImage):$(Build.BuildId) $(acrLoginServer)/$(frontendImage):latest
       displayName: Tag Docker Images
 
     # Push only the scanned and approved images to Azure Container Registry.
     - script: |
         docker push $(acrLoginServer)/$(backendImage):$(backendVersion)
-        docker push $(acrLoginServer)/$(backendImage):$(Build.BuildId)
         docker push $(acrLoginServer)/$(backendImage):latest
 
         docker push $(acrLoginServer)/$(frontendImage):$(frontendVersion)
-        docker push $(acrLoginServer)/$(frontendImage):$(Build.BuildId)
         docker push $(acrLoginServer)/$(frontendImage):latest
       displayName: Push Docker Images
 
