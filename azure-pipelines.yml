@@ -250,3 +250,42 @@ stages:
         azureSubscription: $(azureServiceConnection)
         appName: $(frontendAppName)
         containers: $(acrLoginServer)/$(frontendImage):$(frontendVersion)
+
+# =========================================================
+# FINAL STAGE - VALIDATE DEPLOYMENT
+# =========================================================
+# Runs after the Backend and Frontend have been deployed.
+# Performs a simple smoke test against the live Backend URL.
+# The pipeline passes if the Backend returns HTTP 200.
+# The pipeline fails if any other HTTP status is returned.
+# =========================================================
+- stage: ValidateDeployment
+  displayName: Validate Deployment
+
+  # Wait for both deployment stages to complete successfully.
+  dependsOn:
+  - DeployBackend
+  - DeployFrontend
+
+  # Only run this stage if the previous stages succeeded.
+  condition: succeeded()
+
+  jobs:
+  - job: SmokeTest
+
+    steps:
+
+    # Repository files are not required for this test.
+    - checkout: none
+
+    # Call the live Backend and capture its HTTP status code.
+    - script: |
+        status=$(curl -s -o /dev/null -w "%{http_code}" https://api.mfarooq.it.com/)
+
+        echo "Backend status: $status"
+
+        # HTTP 200 = application is running successfully.
+        # Any other status will cause this step and pipeline to fail.
+        test "$status" = "200"
+
+      displayName: Smoke Test Backend
