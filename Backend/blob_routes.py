@@ -4,20 +4,6 @@ from fastapi.responses import StreamingResponse
 import auth
 import models
 from blob_storage import get_container_client
-import blob_routes
-
-# ---------------------------------------------------------
-# Azure Blob Storage routes
-# ---------------------------------------------------------
-
-app.include_router(blob_routes.router)
-
-
-app.include_router(blob_routes.router)
-
-
-
-app = FastAPI(title="Simple FastAPI React ToDo")
 
 router = APIRouter(
     prefix="/files",
