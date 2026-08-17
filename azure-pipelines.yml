@@ -278,14 +278,12 @@ stages:
     # Repository files are not required for this test.
     - checkout: none
 
-    # Call the live Backend and capture its HTTP status code.
     - script: |
-        status=$(curl -s -o /dev/null -w "%{http_code}" https://api.mfarooq.it.com/)
-
-        echo "Backend status: $status"
-
-        # HTTP 200 = application is running successfully.
-        # Any other status will cause this step and pipeline to fail.
-        test "$status" = "200"
-
+        for i in {1..12}; do
+          status=$(curl -s -o /dev/null -w "%{http_code}" https://api.mfarooq.it.com/)
+          echo "Attempt $i: $status"
+          [ "$status" = "200" ] && exit 0
+          sleep 10
+        done
+        exit 1
       displayName: Smoke Test Backend
