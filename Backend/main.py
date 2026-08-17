@@ -10,7 +10,7 @@ import blob_routes
 import crud
 import models
 import schemas
-from database import SessionLocal, engine
+from database import DATABASE_URL, SessionLocal, engine
 
 
 app = FastAPI(title="Simple FastAPI React ToDo")
@@ -39,6 +39,9 @@ def get_db():
 
 @app.on_event("startup")
 def prepare_database():
+    if not DATABASE_URL.startswith("sqlite"):
+        return
+
     try:
         models.Base.metadata.create_all(bind=engine)
         seed_default_user()
