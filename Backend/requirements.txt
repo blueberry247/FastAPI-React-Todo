@@ -12,3 +12,4 @@ msgpack>=1.2.1
 azure-identity
 azure-keyvault-secrets
 pyodbc
+azure-storage-blob

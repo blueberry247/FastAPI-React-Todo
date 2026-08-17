@@ -5,6 +5,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.orm import Session
 
 import auth
+import blob_routes
 import crud
 import models
 import schemas
@@ -23,6 +24,13 @@ models.Base.metadata.create_all(bind=engine)
 # ---------------------------------------------------------
 
 app = FastAPI(title="Simple FastAPI React ToDo")
+
+
+# ---------------------------------------------------------
+# Azure Blob Storage routes
+# ---------------------------------------------------------
+
+app.include_router(blob_routes.router)
 
 
 # ---------------------------------------------------------
