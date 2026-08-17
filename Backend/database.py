@@ -1,20 +1,89 @@
 import os
+from urllib.parse import quote_plus
 
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 
-# Docker Compose sets DATABASE_URL so the SQLite file is stored in a volume.
-# If the variable is missing, local development uses a SQLite file in Backend/.
-DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./sql_app.db")
+from keyvault import get_secret_client
 
-# SQLite needs this option because FastAPI can use multiple threads.
-connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
 
-# SQLAlchemy engine = connection manager for the database.
-engine = create_engine(DATABASE_URL, connect_args=connect_args)
+# ---------------------------------------------------------
+# Database configuration
+# ---------------------------------------------------------
 
-# SessionLocal creates one database session per request.
-SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+def get_database_url():
+    """
+    Azure:
+        Read the ODBC connection string from Azure Key Vault.
 
-# Base is used by models.py to define database tables.
+    Local development:
+        Fall back to DATABASE_URL if supplied.
+        Otherwise use SQLite.
+    """
+
+    # Local override if required
+    local_database_url = os.getenv("DATABASE_URL")
+
+    if local_database_url:
+        return local_database_url
+
+    try:
+        # Azure App Service uses Managed Identity here.
+        secret_client = get_secret_client()
+
+        secret = secret_client.get_secret("database-url")
+
+        odbc_connection_string = secret.value
+
+        encoded_connection_string = quote_plus(
+            odbc_connection_string
+        )
+
+        return (
+            "mssql+pyodbc:///?odbc_connect="
+            + encoded_connection_string
+        )
+
+    except Exception:
+        # Local development fallback
+        return "sqlite:///./sql_app.db"
+
+
+DATABASE_URL = get_database_url()
+
+
+# ---------------------------------------------------------
+# SQLAlchemy engine
+# ---------------------------------------------------------
+
+if DATABASE_URL.startswith("sqlite"):
+    connect_args = {
+        "check_same_thread": False
+    }
+else:
+    connect_args = {}
+
+
+engine = create_engine(
+    DATABASE_URL,
+    connect_args=connect_args,
+    pool_pre_ping=True,
+)
+
+
+# ---------------------------------------------------------
+# Database sessions
+# ---------------------------------------------------------
+
+SessionLocal = sessionmaker(
+    autocommit=False,
+    autoflush=False,
+    bind=engine,
+)
+
+
+# ---------------------------------------------------------
+# SQLAlchemy Base
+# ---------------------------------------------------------
+
 Base = declarative_base()
