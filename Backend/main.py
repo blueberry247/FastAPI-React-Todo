@@ -13,7 +13,10 @@ import schemas
 from database import DATABASE_URL, SessionLocal, engine
 
 
-app = FastAPI(title="Simple FastAPI React ToDo")
+app = FastAPI(
+    title="Simple FastAPI React ToDo",
+    servers=[{"url": "https://api.mfarooq.it.com"}],
+)
 app.include_router(blob_routes.router)
 
 app.add_middleware(
