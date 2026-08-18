@@ -1,14 +1,25 @@
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.responses import StreamingResponse
+from azure.storage.blob import ContentSettings
 
 import auth
-import models
 from blob_storage import get_container_client
 
 router = APIRouter(
     prefix="/files",
     tags=["Files"],
 )
+
+
+def get_user_id_from_claims(claims: dict) -> int:
+    user_id = claims.get("user_id")
+    if user_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Please log in again to refresh your access token",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return int(user_id)
 
 
 # ---------------------------------------------------------
@@ -18,7 +29,7 @@ router = APIRouter(
 @router.post("/upload")
 async def upload_file(
     file: UploadFile = File(...),
-    current_user: models.User = Depends(auth.get_current_user),
+    claims: dict = Depends(auth.get_current_token_claims),
 ):
     """
     Upload a file to Azure Blob Storage.
@@ -30,7 +41,7 @@ async def upload_file(
     try:
         container_client = get_container_client()
 
-        blob_name = f"{current_user.id}/{file.filename}"
+        blob_name = f"{get_user_id_from_claims(claims)}/{file.filename}"
 
         blob_client = container_client.get_blob_client(blob_name)
 
@@ -39,7 +50,7 @@ async def upload_file(
         blob_client.upload_blob(
             file.file,
             overwrite=True,
-            content_type=file.content_type,
+            content_settings=ContentSettings(content_type=file.content_type),
         )
 
         return {
@@ -61,7 +72,7 @@ async def upload_file(
 
 @router.get("/")
 def list_files(
-    current_user: models.User = Depends(auth.get_current_user),
+    claims: dict = Depends(auth.get_current_token_claims),
 ):
     """
     List files belonging to the authenticated user.
@@ -70,7 +81,7 @@ def list_files(
     try:
         container_client = get_container_client()
 
-        prefix = f"{current_user.id}/"
+        prefix = f"{get_user_id_from_claims(claims)}/"
 
         blobs = container_client.list_blobs(
             name_starts_with=prefix
@@ -99,7 +110,7 @@ def list_files(
 @router.get("/{filename}")
 def download_file(
     filename: str,
-    current_user: models.User = Depends(auth.get_current_user),
+    claims: dict = Depends(auth.get_current_token_claims),
 ):
     """
     Download one of the authenticated user's files.
@@ -108,7 +119,7 @@ def download_file(
     try:
         container_client = get_container_client()
 
-        blob_name = f"{current_user.id}/{filename}"
+        blob_name = f"{get_user_id_from_claims(claims)}/{filename}"
 
         blob_client = container_client.get_blob_client(blob_name)
 
@@ -138,7 +149,7 @@ def download_file(
 @router.delete("/{filename}")
 def delete_file(
     filename: str,
-    current_user: models.User = Depends(auth.get_current_user),
+    claims: dict = Depends(auth.get_current_token_claims),
 ):
     """
     Delete one of the authenticated user's files.
@@ -147,7 +158,7 @@ def delete_file(
     try:
         container_client = get_container_client()
 
-        blob_name = f"{current_user.id}/{filename}"
+        blob_name = f"{get_user_id_from_claims(claims)}/{filename}"
 
         blob_client = container_client.get_blob_client(blob_name)
 

@@ -168,6 +168,7 @@ def authenticate_user(
 
 def create_access_token(
     subject: str,
+    user_id: int | None = None,
     expires_delta: timedelta | None = None,
 ) -> str:
     """
@@ -190,6 +191,9 @@ def create_access_token(
         "sub": subject,
         "exp": expire,
     }
+
+    if user_id is not None:
+        payload["user_id"] = user_id
 
     secret_key = get_jwt_secret_key()
 
@@ -231,6 +235,25 @@ def decode_access_token(
                 "WWW-Authenticate": "Bearer"
             },
         ) from exc
+
+
+def get_current_token_claims(
+    token: str = Depends(
+        oauth2_scheme
+    ),
+) -> dict:
+    payload = decode_access_token(token)
+
+    if not payload.get("sub"):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Could not validate credentials",
+            headers={
+                "WWW-Authenticate": "Bearer"
+            },
+        )
+
+    return payload
 
 
 # =========================================================

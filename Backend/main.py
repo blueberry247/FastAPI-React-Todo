@@ -100,7 +100,7 @@ def login(credentials: schemas.UserLogin, db: Session = Depends(get_db)):
         )
 
     try:
-        token = auth.create_access_token(subject=user.email)
+        token = auth.create_access_token(subject=user.email, user_id=user.id)
     except Exception as exc:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
