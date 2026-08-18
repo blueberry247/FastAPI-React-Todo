@@ -3,7 +3,7 @@ from datetime import datetime, timedelta, timezone
 import jwt
 
 from fastapi import Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jwt import InvalidTokenError
 from passlib.context import CryptContext
 from sqlalchemy.orm import Session
@@ -35,12 +35,10 @@ password_context = CryptContext(
 
 
 # =========================================================
-# OAUTH2 BEARER TOKEN
+# BEARER TOKEN
 # =========================================================
 
-oauth2_scheme = OAuth2PasswordBearer(
-    tokenUrl="token"
-)
+bearer_scheme = HTTPBearer()
 
 
 # =========================================================
@@ -238,10 +236,11 @@ def decode_access_token(
 
 
 def get_current_token_claims(
-    token: str = Depends(
-        oauth2_scheme
+    credentials: HTTPAuthorizationCredentials = Depends(
+        bearer_scheme
     ),
 ) -> dict:
+    token = credentials.credentials
     payload = decode_access_token(token)
 
     if not payload.get("sub"):
@@ -262,8 +261,8 @@ def get_current_token_claims(
 
 
 def get_current_user(
-    token: str = Depends(
-        oauth2_scheme
+    credentials: HTTPAuthorizationCredentials = Depends(
+        bearer_scheme
     ),
     db: Session = Depends(
         get_db
@@ -273,9 +272,7 @@ def get_current_user(
     Validate bearer token and return authenticated user.
     """
 
-    payload = decode_access_token(
-        token
-    )
+    payload = decode_access_token(credentials.credentials)
 
     email = payload.get(
         "sub"
